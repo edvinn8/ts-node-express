@@ -1,3 +1,5 @@
+import { firestore } from 'firebase-admin';
+
 export interface Chat {
   users:           ChatUser[];
   messages:        Message[];
@@ -124,4 +126,10 @@ export interface ChatUser {
   isFriend:   number;
   canVideo:   number;
   canAudio:   number;
+}
+
+export interface ChatConfig {
+  wpNonce: string;
+  wpCookie: string;
+  updatedAt: firestore.Timestamp;
 }
