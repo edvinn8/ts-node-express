@@ -5,6 +5,7 @@ export interface Chat {
   messages:        Message[];
   threads:         Thread[];
   deletedMessages?: number[];
+  currentUser?: ChatUserConfig;
   currentTime:     number;
   lastUpdate: string;
   totalMessages: number;
@@ -21,31 +22,50 @@ export interface Message {
   updated_at: number;
   temp_id:    string;
   message_id: number;
-  meta:       any[] | MetaMeta;
+  meta:       MetaMeta;
+  replyTo?:   Message;
   favorited:  number;
+  hasFiles:   boolean;
 }
 
 export interface MetaMeta {
-  reactions?: Reactions;
+  reactions?: ReactionMeta[];
   replyTo?:   number;
+  files: File[];
 }
 
-export interface Reactions {
-  "0": The0;
+export interface File {
+  id:       number;
+  thumb:    string;
+  url:      string;
+  mimeType: string;
+  name:     string;
+  size:     number;
+  ext:      string;
 }
 
-export interface The0 {
-  reaction: string;
-  users:    { [key: string]: number };
+export interface ReactionMeta {
+  reaction: Reaction;
+  users: number[];
 }
 
 export enum Reaction {
-  The1F44C = "1f44c",
-  The1F44D = "1f44d",
-  The1F60D = "1f60d",
-  The1F914 = "1f914",
-  The2B50 = "2b50",
+  Ok = '1f44c',
+  Like = '1f44d',
+  InLove = '1f60d',
+  Surprised = '1f632',
+  Thinking = '1f914',
+  Star = '2b50',
 }
+
+export const ReactionEmojiMap = {
+  [Reaction.Ok]: '👌',
+  [Reaction.Like]: '👍',
+  [Reaction.InLove]: '😍',
+  [Reaction.Surprised]: '😲',
+  [Reaction.Thinking]: '🤔',
+  [Reaction.Star]: '⭐',
+};
 
 export interface Thread {
   thread_id:         number;
@@ -128,8 +148,20 @@ export interface ChatUser {
   canAudio:   number;
 }
 
+export interface ChatUserConfig extends ChatUser {
+  wpNonce: string;
+  wpCookie: string;
+  updatedAt: any;
+}
+
 export interface ChatConfig {
   wpNonce: string;
   wpCookie: string;
   updatedAt: firestore.Timestamp;
+  currentUser: ChatUser;
+}
+
+export interface ReactionUpdate {
+  emoji: Reaction;
+  message_id: number;
 }
