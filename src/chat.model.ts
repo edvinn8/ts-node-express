@@ -10,6 +10,8 @@ export interface Chat {
   lastUpdate: string;
   totalMessages: number;
   participantsCount: number;
+  lastMessageId: number;
+  lastReadMessageId: number;
 }
 
 export interface Message {

@@ -2,20 +2,13 @@
 import dotenv from 'dotenv'
 import express, { Express, Request, Response } from 'express'
 
-import bodyParser from 'body-parser'
+import bodyParser, { raw } from 'body-parser'
 import fs from 'fs'
 import * as shell from 'shelljs'
 
 import { firestore } from 'firebase-admin'
 import path from 'path'
-import {
-  Chat,
-  ChatConfig,
-  ChatUser,
-  ChatUserConfig,
-  Message,
-  ReactionUpdate
-} from './chat.model'
+import { Chat, ChatConfig, ChatUser, Message } from './chat.model'
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
@@ -26,17 +19,17 @@ const cloneDeep = require('clone-deep')
 const timestamp = Date.now()
 const MESSAGES = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/checkNew?nocache=${timestamp}`
 const MESSAGES_INTERVAL = 1000 * 15 // every 1 minute
-const USERS = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/thread/8?nocache=${timestamp}`
 const PARTICIPANTS = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/lazyPool?nocache=${timestamp}`
-// const USERS_INTERVAL = 1000 * 60 * 5 // every 5 minutes
 
 let chatConfig: ChatConfig
 
 let errorCount = 0
 let telegramSent = false
 let eagerModeActive = false
-let currentUser: ChatUserConfig | undefined
-let previousMessages: Message[] = []
+
+let newMessagesNotification = false
+let previousMessages: Message[] | undefined
+let rawResponse: string
 
 initializeApp({
   credential: cert(serviceAccount)
@@ -100,18 +93,9 @@ app.listen(port, async () => {
     )
   }
 
-  // random number between 100 and 900
-  const randomOffset = Math.floor(Math.random() * 800) + 100
-  await getMessages()
-
-  setInterval(async () => {
-    await getMessages()
-  }, MESSAGES_INTERVAL + randomOffset)
-
   db.collection('manualTriggers').onSnapshot(async (doc) => {
     if (!init) {
       eagerModeActive = true
-      console.log('Manual trigger received')
 
       setTimeout(async () => {
         // immediate check
@@ -130,14 +114,14 @@ app.listen(port, async () => {
       }, 5000)
     }
   })
-})
 
-app.post('/test', async (req, res) => {
-  console.log('Test request received')
-  const fetchedResponse = await pingZalet(MESSAGES)
-  console.log('fetched messages: ', fetchedResponse.messages.length)
+  // random number between 100 and 900
+  const randomOffset = Math.floor(Math.random() * 800) + 100
+  await getMessages()
 
-  res.send(fetchedResponse)
+  setInterval(async () => {
+    await getMessages()
+  }, MESSAGES_INTERVAL + randomOffset)
 })
 
 const pingZalet = async (url: string, users?: number[]) => {
@@ -271,8 +255,6 @@ const processChatData = async (responseJson: any) => {
   const chatDoc = await db.collection('zaletChat').doc('generalChat')
   const chat = (await chatDoc.get()).data()
 
-  currentUser = chat?.currentUser
-
   const doc = await db
     .collection('zaletChat/generalChat/messages')
     .orderBy('message_id', 'desc')
@@ -288,7 +270,7 @@ const processChatData = async (responseJson: any) => {
   console.log('Last saved message id: ', lastSavedMessageId)
 
   const chatData = responseJson as Chat
-  const rawResponse = JSON.stringify(chatData)
+  rawResponse = JSON.stringify(chatData)
 
   const allMessages = cloneDeep(chatData.messages) as Message[]
 
@@ -318,21 +300,28 @@ const processChatData = async (responseJson: any) => {
   console.log('Message metadata processed.')
 
   const messagesToUpdate: Message[] = [
-    ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
+    // ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
   ]
   console.log(`Found ${messagesToUpdate.length} new messages to insert.`)
+  let timePassedInMs
+  const now = Date.now()
 
-  if (!init) {
-    allMessages.forEach((m, i) => {
-      if (!deepEqual(m, previousMessages[i])) {
-        messagesToUpdate.push(m)
-        console.log(`Change in message ${m.message_id} detected!`)
-        console.log('m: ', m)
-        console.log('Previous', previousMessages[i])
-      }
-    })
+  if (!!previousMessages) {
+    allMessages
+      .filter((m) => m.message_id > lastMessageId - 100)
+      .forEach((m, i) => {
+        const prev = previousMessages!.find(
+          (pm) => pm.message_id === m.message_id
+        )
+        if (!deepEqual(m, prev)) {
+          messagesToUpdate.push(m)
+        }
+      })
   }
 
+  timePassedInMs = Date.now() - now
+
+  console.log(`Time passed: ${timePassedInMs}ms`)
   console.log(`Found ${messagesToUpdate.length} messages to update.`)
 
   previousMessages = allMessages
@@ -355,12 +344,31 @@ const processChatData = async (responseJson: any) => {
       await addToCollection('zaletChat/generalChat/messages', m)
     }
   }
+  const allSendersSet = new Set(allMessages.map((m) => m.sender_id))
 
   const hasNewMessages = messagesToUpdate.length > 0
   if (hasNewMessages) {
     eagerModeActive = false
 
-    participants = await getParticipants(chatData.threads[0]?.participants)
+    participants = await getParticipants(Array.from(allSendersSet))
+  }
+
+  lastMessageId = lastMessageId || lastSavedMessageId
+
+  const notifyAfterNMessages = 5
+  const unreadMessagesCount = lastMessageId - chat?.lastReadMessageId
+  const shouldNotify = unreadMessagesCount >= notifyAfterNMessages
+  console.log(`You have ${unreadMessagesCount} unread messages!`)
+
+  if (shouldNotify) {
+    if (!newMessagesNotification) {
+      newMessagesNotification = true
+      sendTelegramMessage(
+        `Check Zalet chat, you have ${unreadMessagesCount} unread messages!`
+      )
+    }
+  } else {
+    newMessagesNotification = false
   }
 
   await db
@@ -372,7 +380,7 @@ const processChatData = async (responseJson: any) => {
       users: participants.length ? participants : chat?.users || [],
       participantsCount:
         chatData.threads[0]?.participantsCount || chat?.participantsCount || 0,
-      lastMessageId: lastMessageId || lastSavedMessageId
+      lastMessageId
     })
 
   if (messagesToUpdate.length > 0) {
@@ -431,13 +439,16 @@ const getMessages = async () => {
   try {
     responseJson = await pingZalet(MESSAGES)
     lastUpdate = responseJson.currentTime
+    if (telegramSent) {
+      sendTelegramMessage('Cookies updated, fetching messages again!')
+    }
     telegramSent = false
     errorCount = 0
   } catch (e) {
     console.error('Error fetching messages')
     // notify telegram to update cookies
     errorCount++
-    if (errorCount > 3) {
+    if (errorCount > 5 && !telegramSent) {
       sendTelegramMessage('Error fetching messages, check cookies ASAP!')
       errorCount = 0
       telegramSent = true
@@ -449,11 +460,14 @@ const getMessages = async () => {
   console.log('fetched messages: ', responseJson.messages.length)
 
   await processChatData(responseJson)
-  if (responseJson.messages.length > 100 && new Date().getMinutes() % 1 === 0) {
+  if (
+    responseJson.messages.length > 100 &&
+    new Date().getMinutes() % 30 === 0
+  ) {
     const filename = generateFilenameWithDate('chatdata')
     console.log(`Saving response to file: ${filename}`)
 
-    fs.writeFileSync(`${folderPath}${filename}`, JSON.stringify(responseJson))
+    fs.writeFileSync(`${folderPath}${filename}`, JSON.stringify(rawResponse))
   }
 
   checkInProgress = false
@@ -476,17 +490,7 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
 
   try {
     responseJson = await pingZalet(PARTICIPANTS, participants)
-    telegramSent = false
-    errorCount = 0
   } catch (e) {
-    console.error('Error fetching users')
-    // notify telegram to update cookies
-    errorCount++
-    if (errorCount > 3) {
-      sendTelegramMessage('Error fetching users, check cookies ASAP!')
-      errorCount = 0
-      telegramSent = true
-    }
     return Promise.resolve([])
   }
   console.log('fetched users: ', responseJson.users.length)
@@ -496,7 +500,6 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
 
   if (isTenthMinute && responseJson.users.length > 0) {
     const filename = generateFilenameWithDate('chatusers')
-    console.log(`Saving response to file: ${filename}`)
 
     fs.writeFileSync(`${folderPath}${filename}`, JSON.stringify(responseJson))
   }
