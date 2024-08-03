@@ -87,6 +87,8 @@ app.listen(port, async () => {
 
   if (!!chatConfig) {
     console.log('\nConfig fetched successfully.')
+    console.log(`User id: ${chatConfig.user_id}`)
+    console.log(`Nonce: ${chatConfig.wpNonce}`);
     console.log(
       'Config date:',
       getDateTimeString(chatConfig.updatedAt.toDate())
@@ -104,14 +106,14 @@ app.listen(port, async () => {
 
       let counter = 0
       const checkInterval = setInterval(async () => {
-        // check every 5 seconds for 50 seconds
+        // check every 8 seconds for 80 seconds
         await getMessages()
 
         counter++
         if (counter > 10 || !eagerModeActive) {
           clearInterval(checkInterval)
         }
-      }, 5000)
+      }, 8000)
     }
   })
 
@@ -158,97 +160,6 @@ const pingZalet = async (url: string, users?: number[]) => {
   }
 
   return resp.json()
-}
-
-const defaultFileExtension = 'json'
-const DEFAULT_MODE = 'writeFile'
-
-app.post('/write', async (req, res) => {
-  const requestName = req.body.requestName
-  console.log(`\n${getDateTimeString()}`)
-  console.log(`Request received - ${requestName}`)
-  let extension = req.body.fileExtension || defaultFileExtension,
-    uniqueIdentifier = req.body.uniqueIdentifier
-      ? typeof req.body.uniqueIdentifier === 'boolean'
-        ? Date.now()
-        : req.body.uniqueIdentifier
-      : false,
-    filename = `${requestName}${uniqueIdentifier || ''}`,
-    filePath = `${path.join(folderPath, filename)}.${extension}`,
-    options = req.body.options || undefined
-
-  // console.log(`Data written to file: ${filePath}`)
-
-  const responseJson = JSON.parse(req.body.responseData)
-
-  // Write data to file
-  fs[DEFAULT_MODE](
-    filePath,
-    req.body.responseData,
-    options,
-    async (err: any) => {
-      if (err) {
-        console.log(err)
-        res.send('Error')
-      } else {
-        console.log('File written successfully!')
-
-        // Add data to Firestore
-        switch (requestName) {
-          case 'chatusers':
-            await processUsers(responseJson)
-            break
-          case 'chatdata':
-            await processChatData(responseJson)
-            break
-          default:
-            console.log('No processing for requestName: ', requestName)
-            break
-        }
-
-        console.log(getDateTimeString())
-        console.log('Request processed successfully!')
-        res.send('Success')
-      }
-    }
-  )
-})
-
-const processUsers = async (responseJson: any) => {
-  const users = responseJson.users as ChatUser[]
-  let userChangeDetected = false
-
-  const chatDoc = await db.collection('zaletChat').doc('generalChat')
-
-  const chat = (await chatDoc.get()).data()
-
-  for (let user of users) {
-    // check if exists
-    const userAlreadySaved = chat?.savedUsers?.includes(user.user_id)
-    if (userAlreadySaved) {
-      console.log(`User: ${user.name} already exists`)
-      continue
-    }
-    userChangeDetected = true
-    console.log(`Inserting user: ${user.name}`)
-    await addToCollection('zaletChat/generalChat/users', user)
-  }
-
-  if (userChangeDetected) {
-    const allUsers = [
-      ...(chat?.savedUsers || []),
-      ...users.map((u) => u.user_id)
-    ]
-    const allUsersSet = new Set(allUsers)
-    chatDoc.update({
-      lastUserUpdate: getDateTimeString(),
-      savedUsers: Array.from(allUsersSet)
-    })
-  }
-
-  console.log('\nUsers successfully processed!')
-
-  return Promise.resolve()
 }
 
 const processChatData = async (responseJson: any) => {
@@ -299,9 +210,10 @@ const processChatData = async (responseJson: any) => {
 
   console.log('Message metadata processed.')
 
-  const messagesToUpdate: Message[] = [
-    // ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
-  ]
+  const messagesToUpdate: Message[] = init
+    ? [...allMessages.filter((m) => m.message_id > lastSavedMessageId)]
+    : []
+
   console.log(`Found ${messagesToUpdate.length} new messages to insert.`)
   let timePassedInMs
   const now = Date.now()
@@ -383,9 +295,7 @@ const processChatData = async (responseJson: any) => {
       lastMessageId
     })
 
-  if (messagesToUpdate.length > 0) {
-    console.log('\nMessages successfully processed!')
-  }
+  console.log('Messages successfully processed!')
 
   return Promise.resolve()
 }
@@ -460,10 +370,7 @@ const getMessages = async () => {
   console.log('fetched messages: ', responseJson.messages.length)
 
   await processChatData(responseJson)
-  if (
-    responseJson.messages.length > 100 &&
-    new Date().getMinutes() % 30 === 0
-  ) {
+  if (new Date().getMinutes() % 30 === 0) {
     const filename = generateFilenameWithDate('chatdata')
     console.log(`Saving response to file: ${filename}`)
 

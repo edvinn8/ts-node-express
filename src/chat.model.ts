@@ -160,7 +160,7 @@ export interface ChatConfig {
   wpNonce: string;
   wpCookie: string;
   updatedAt: firestore.Timestamp;
-  currentUser: ChatUser;
+  user_id: number;
 }
 
 export interface ReactionUpdate {
