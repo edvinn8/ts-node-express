@@ -2,18 +2,18 @@
 import dotenv from 'dotenv'
 import express, { Express, Request, Response } from 'express'
 
-import bodyParser, { raw } from 'body-parser'
+import bodyParser from 'body-parser'
 import fs from 'fs'
 import * as shell from 'shelljs'
 
 import { firestore } from 'firebase-admin'
-import path from 'path'
 import { Chat, ChatConfig, ChatUser, Message } from './chat.model'
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
-const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
 const deepEqual = require('deep-equal')
 const cloneDeep = require('clone-deep')
+const folderPath = 'D:/Development/Backup/RequestResponses/' // './Responses/',
+const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
 
 // Variables
 const timestamp = Date.now()
@@ -41,8 +41,6 @@ dotenv.config()
 
 const app: Express = express()
 const port = process.env.PORT || 3000
-
-const folderPath = 'D:/Development/Backup/RequestResponses/' // './Responses/',
 
 // Create the folder path in case it doesn't exist
 shell.mkdir('-p', folderPath)
@@ -88,7 +86,7 @@ app.listen(port, async () => {
   if (!!chatConfig) {
     console.log('\nConfig fetched successfully.')
     console.log(`User id: ${chatConfig.user_id}`)
-    console.log(`Nonce: ${chatConfig.wpNonce}`);
+    console.log(`Nonce: ${chatConfig.wpNonce}`)
     console.log(
       'Config date:',
       getDateTimeString(chatConfig.updatedAt.toDate())
@@ -256,7 +254,14 @@ const processChatData = async (responseJson: any) => {
       await addToCollection('zaletChat/generalChat/messages', m)
     }
   }
-  const allSendersSet = new Set(allMessages.map((m) => m.sender_id))
+
+  const allSenders = allMessages.map((m) => m.sender_id)
+  const allReactionIds = allMessages
+    .filter((m) => !Array.isArray(m.meta) && m.meta.reactions?.length)
+    .map((m) => m.meta.reactions!.map((r) => r.users))
+    .flat()
+    .flat()
+  const allSendersSet = new Set([...allSenders, ...allReactionIds])
 
   const hasNewMessages = messagesToUpdate.length > 0
   if (hasNewMessages) {
