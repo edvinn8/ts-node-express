@@ -7,7 +7,13 @@ import fs from 'fs'
 import * as shell from 'shelljs'
 
 import { firestore } from 'firebase-admin'
-import { Chat, ChatConfig, ChatUser, Message } from './chat.model'
+import {
+  Chat,
+  ChatConfig,
+  ChatUser,
+  ChatUserConfig,
+  Message
+} from './chat.model'
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const deepEqual = require('deep-equal')
@@ -15,8 +21,12 @@ const cloneDeep = require('clone-deep')
 const folderPath = 'D:/Development/Backup/RequestResponses/' // './Responses/',
 const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
 
+
 // Variables
 const timestamp = Date.now()
+const ZALET_CHAT_URL = 'https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/thread/8'
+
+const FILE_UPLOAD_URL = `${ZALET_CHAT_URL}/upload?nocache=${timestamp}`
 const MESSAGES = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/checkNew?nocache=${timestamp}`
 const MESSAGES_INTERVAL = 1000 * 15 // every 1 minute
 const PARTICIPANTS = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/lazyPool?nocache=${timestamp}`
@@ -97,10 +107,19 @@ app.listen(port, async () => {
     if (!init) {
       eagerModeActive = true
 
-      setTimeout(async () => {
-        // immediate check
-        await getMessages()
-      }, 1000)
+      doc.docChanges().forEach(async (change) => {
+        if (change.type === 'added') {
+          const data = change.doc.data()
+          if (data.eventType === 'sendFileToZalet') {
+            const file = await getFileFromUrl(data.message)
+            const res = await uploadFile(file, data.currentUser)
+            const t = await res.json()
+            console.log('Uploaded file with id:', t.id)
+            const response = await sendImageToChat(t.id, data.currentUser)
+            console.log('response: ', response)
+          }
+        }
+      })
 
       let counter = 0
       const checkInterval = setInterval(async () => {
@@ -417,4 +436,56 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
   }
 
   return Promise.resolve(responseJson.users)
+}
+
+async function getFileFromUrl(/** @type {string} */ url: string) {
+  const response = await fetch(url)
+  return response.blob()
+}
+
+async function uploadFile(file: Blob, currentUser: ChatUserConfig) {
+  const formData = new FormData()
+  formData.set('file', file, 'file.jpg')
+  return fetch(FILE_UPLOAD_URL, {
+    method: 'POST',
+    headers: {
+      'X-WP-Nonce': currentUser.wpNonce,
+      host: 'zalet.zaleprodukcija.com',
+      Accept: 'application/json, text/plain, */*',
+      Cookie: currentUser.wpCookie
+    },
+    body: formData
+  })
+}
+
+async function sendImageToChat(
+  fileId: number,
+  currentUser: ChatUserConfig
+): Promise<Response> {
+  const timestamp = Date.now()
+  const body = JSON.stringify({
+    message: '',
+    files: [fileId],
+    meta: {}
+  })
+
+  const url = `${ZALET_CHAT_URL}/send?nocache=` + timestamp
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-WP-Nonce': currentUser.wpNonce,
+      host: 'zalet.zaleprodukcija.com',
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Cookie: currentUser.wpCookie
+    },
+    body
+  })
+
+  if (!resp.ok) {
+    return Promise.reject(new Error('Error sending image to Zalet chat!'))
+  }
+
+  return resp.json()
 }
