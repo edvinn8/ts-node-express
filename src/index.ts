@@ -21,10 +21,10 @@ const cloneDeep = require('clone-deep')
 const folderPath = 'D:/Development/Backup/RequestResponses/' // './Responses/',
 const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
 
-
 // Variables
 const timestamp = Date.now()
-const ZALET_CHAT_URL = 'https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/thread/8'
+const ZALET_CHAT_URL =
+  'https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/thread/8'
 
 const FILE_UPLOAD_URL = `${ZALET_CHAT_URL}/upload?nocache=${timestamp}`
 const MESSAGES = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/checkNew?nocache=${timestamp}`
@@ -297,11 +297,12 @@ const processChatData = async (responseJson: any) => {
   console.log(`You have ${unreadMessagesCount} unread messages!`)
 
   if (shouldNotify) {
+    const message = `Check Zalet chat, you have ${unreadMessagesCount} unread messages!`
     if (!newMessagesNotification) {
       newMessagesNotification = true
-      sendTelegramMessage(
-        `Check Zalet chat, you have ${unreadMessagesCount} unread messages!`
-      )
+      sendTelegramMessage(message)
+    } else if (unreadMessagesCount % (2 * notifyAfterNMessages) === 0) {
+      sendTelegramMessage(message)
     }
   } else {
     newMessagesNotification = false
