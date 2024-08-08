@@ -48,7 +48,6 @@ let chatConfig: ChatConfig
 
 let errorCount = 0
 let telegramSent = false
-let eagerModeActive = false
 
 const notifyAfterNMessages = [5, 10, 20, 50]
 let newMessagesNotification = Array(4).fill(false)
@@ -100,10 +99,6 @@ app.listen(port, async () => {
     }`
   )
 
-  setTimeout(() => {
-    init = false
-  }, MESSAGES_INTERVAL)
-
   const chatDoc = await db.collection('config').doc('chatConfig')
   chatConfig = (await chatDoc.get()).data() as ChatConfig
 
@@ -119,9 +114,7 @@ app.listen(port, async () => {
 
   db.collection('manualTriggers').onSnapshot(async (doc) => {
     if (!init) {
-      eagerModeActive = true
-
-      doc.docChanges().forEach(async (change) => {
+      for (const change of doc.docChanges()) {
         if (change.type === 'added') {
           const data = change.doc.data()
           const eventType = change.doc.data().eventType
@@ -167,19 +160,12 @@ app.listen(port, async () => {
               break
           }
         }
-      })
+      }
 
-      let counter = 0
-      const checkInterval = setInterval(async () => {
-        // check every 8 seconds for 80 seconds
-        await getMessages()
-
-        counter++
-        if (counter > 10 || !eagerModeActive) {
-          clearInterval(checkInterval)
-        }
-      }, 8000)
+      await getMessages()
     }
+
+    init = false
   })
 
   // random number between 100 and 900
@@ -197,6 +183,8 @@ const pingZalet = async (url: string, users?: number[]) => {
     const chatDoc = await db.collection('config').doc('chatConfig')
     chatConfig = (await chatDoc.get()).data() as ChatConfig
   }
+
+  console.log('lastUpdate: ', lastUpdate)
 
   let payload =
     url === PARTICIPANTS
@@ -275,11 +263,11 @@ const processChatData = async (responseJson: any) => {
 
   console.log('Message metadata processed.')
 
-  const messagesToUpdate: Message[] = init
-    ? [...allMessages.filter((m) => m.message_id > lastSavedMessageId)]
-    : []
+  const newMessages = [
+    ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
+  ]
+  const messagesToUpdate: Message[] = init ? [...newMessages] : []
 
-  console.log(`Found ${messagesToUpdate.length} new messages to insert.`)
   let timePassedInMs
   const now = Date.now()
 
@@ -299,9 +287,14 @@ const processChatData = async (responseJson: any) => {
   timePassedInMs = Date.now() - now
 
   console.log(`Time passed: ${timePassedInMs}ms`)
-  console.log(`Found ${messagesToUpdate.length} messages to update.`)
+  console.log(`Found ${newMessages.length} messages to insert.`)
+  console.log(
+    `Found ${messagesToUpdate.length - newMessages.length} messages to update.`
+  )
 
   previousMessages = allMessages
+
+  let hasNewMessages = false
 
   for (let m of messagesToUpdate) {
     const docRef = await db
@@ -315,6 +308,7 @@ const processChatData = async (responseJson: any) => {
         `Updating message: Id: ${m.message_id}, message: ${m.message}`
       )
     } else {
+      hasNewMessages = true
       console.log(
         `Inserting message: Id: ${m.message_id}, message: ${m.message}`
       )
@@ -330,10 +324,7 @@ const processChatData = async (responseJson: any) => {
     .flat()
   const allSendersSet = new Set([...allSenders, ...allReactionIds])
 
-  const hasNewMessages = messagesToUpdate.length > 0
   if (hasNewMessages) {
-    eagerModeActive = false
-
     participants = await getParticipants(Array.from(allSendersSet))
   }
 
@@ -369,11 +360,15 @@ const getMessages = async () => {
   checkInProgress = true
   console.log(getDateTimeString())
   console.log('Checking for new messages')
-  // const isTenthMinute = new Date().getMinutes() % 10 === 0
+
   let responseJson
 
   try {
+    let timePassedInMs
+    const now = Date.now()
     responseJson = await pingZalet(MESSAGES)
+    timePassedInMs = Date.now() - now
+    console.log(`Time passed pingZalet: ${timePassedInMs}ms`)
     lastUpdate = responseJson.currentTime
     if (telegramSent) {
       sendTelegramMessage('Cookies updated, fetching messages again!')
@@ -393,10 +388,10 @@ const getMessages = async () => {
     return Promise.resolve()
   }
 
-  console.log('fetched messages: ', responseJson.messages.length)
+  console.log('Fetched messages: ', responseJson.messages.length)
 
   await processChatData(responseJson)
-  if (new Date().getMinutes() % 3 === 0) {
+  if (new Date().getMinutes() % 30 === 0) {
     const filename = generateFilenameWithDate('chatdata')
     console.log(`Saving response to file: ${filename}`)
 
@@ -418,9 +413,9 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
   } catch (e) {
     return Promise.resolve([])
   }
-  console.log('fetched users: ', responseJson.users.length)
+  console.log('Fetched users: ', responseJson.users.length)
 
-  const isTenthMinute = true //new Date().getMinutes() % 10 === 0
+  const isTenthMinute = new Date().getMinutes() % 10 === 0
   // await processUsers(responseJson)
 
   if (isTenthMinute && responseJson.users.length > 0) {
