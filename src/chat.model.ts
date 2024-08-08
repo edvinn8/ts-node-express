@@ -167,3 +167,11 @@ export interface ReactionUpdate {
   emoji: Reaction;
   message_id: number;
 }
+
+export enum ManualTriggerEventType {
+  SEND_MESSAGE_TO_ZALET = 'sendToZaletChat',
+  REPLY_TO_ZALET = 'replyToZalet',
+  REACT_TO_ZALET = 'reactToZalet',
+  DELETE_MESSAGE_FROM_ZALET = 'deleteMessage',
+  SEND_FILE_TO_ZALET = 'sendFileToZalet',
+}

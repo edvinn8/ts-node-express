@@ -6,14 +6,27 @@ import bodyParser from 'body-parser'
 import fs from 'fs'
 import * as shell from 'shelljs'
 
-import { firestore } from 'firebase-admin'
+import { Firestore } from '@google-cloud/firestore'
 import {
   Chat,
   ChatConfig,
   ChatUser,
   ChatUserConfig,
-  Message
+  ManualTriggerEventType,
+  Message,
+  ReactionUpdate
 } from './chat.model'
+import {
+  addToCollection,
+  deleteMessageFromZaletChat,
+  generateFilenameWithDate,
+  getDateTimeString,
+  getFileFromUrl,
+  sendMessageToZaletChat,
+  sendReactionToZaletChat,
+  sendTelegramMessage
+} from './utils'
+
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const deepEqual = require('deep-equal')
@@ -37,7 +50,8 @@ let errorCount = 0
 let telegramSent = false
 let eagerModeActive = false
 
-let newMessagesNotification = false
+const notifyAfterNMessages = [5, 10, 20, 50]
+let newMessagesNotification = Array(4).fill(false)
 let previousMessages: Message[] | undefined
 let rawResponse: string
 
@@ -45,7 +59,7 @@ initializeApp({
   credential: cert(serviceAccount)
 })
 
-const db: firestore.Firestore = getFirestore()
+const db: Firestore = getFirestore()
 
 dotenv.config()
 
@@ -110,13 +124,47 @@ app.listen(port, async () => {
       doc.docChanges().forEach(async (change) => {
         if (change.type === 'added') {
           const data = change.doc.data()
-          if (data.eventType === 'sendFileToZalet') {
-            const file = await getFileFromUrl(data.message)
-            const res = await uploadFile(file, data.currentUser)
-            const t = await res.json()
-            console.log('Uploaded file with id:', t.id)
-            const response = await sendImageToChat(t.id, data.currentUser)
-            console.log('response: ', response)
+          const eventType = change.doc.data().eventType
+          switch (eventType) {
+            case ManualTriggerEventType.SEND_MESSAGE_TO_ZALET: {
+              const message = data.message
+              console.log(`Sending message to Zalet chat: ${message}`)
+              await sendMessageToZaletChat(db, message)
+              break
+            }
+            case ManualTriggerEventType.REPLY_TO_ZALET: {
+              const { message, meta } = data
+              console.log(
+                `Replying in Zalet chat to id: ${meta.reply_to}, message: ${message}`
+              )
+              await sendMessageToZaletChat(db, message, meta)
+              break
+            }
+            case ManualTriggerEventType.REACT_TO_ZALET: {
+              const update = data.update as ReactionUpdate
+              console.log(
+                `Updating reaction in Zalet chat for message: ${update.message_id}`
+              )
+              await sendReactionToZaletChat(db, update)
+              break
+            }
+            case ManualTriggerEventType.SEND_FILE_TO_ZALET: {
+              const file = await getFileFromUrl(data.message)
+              const res = await uploadFile(file, data.currentUser)
+              const t = await res.json()
+              console.log('Uploaded file with id:', t.id)
+              const response = await sendImageToChat(t.id, data.currentUser)
+              console.log('response: ', response)
+              break
+            }
+            case ManualTriggerEventType.DELETE_MESSAGE_FROM_ZALET: {
+              const messageId = data.idToDelete
+              console.log(`Deleting message ${messageId} from Zalet chat!`)
+              await deleteMessageFromZaletChat(db, messageId)
+              break
+            }
+            default:
+              break
           }
         }
       })
@@ -270,7 +318,7 @@ const processChatData = async (responseJson: any) => {
       console.log(
         `Inserting message: Id: ${m.message_id}, message: ${m.message}`
       )
-      await addToCollection('zaletChat/generalChat/messages', m)
+      await addToCollection(db, 'zaletChat/generalChat/messages', m)
     }
   }
 
@@ -291,22 +339,8 @@ const processChatData = async (responseJson: any) => {
 
   lastMessageId = lastMessageId || lastSavedMessageId
 
-  const notifyAfterNMessages = 5
   const unreadMessagesCount = lastMessageId - chat?.lastReadMessageId
-  const shouldNotify = unreadMessagesCount >= notifyAfterNMessages
-  console.log(`You have ${unreadMessagesCount} unread messages!`)
-
-  if (shouldNotify) {
-    const message = `Check Zalet chat, you have ${unreadMessagesCount} unread messages!`
-    if (!newMessagesNotification) {
-      newMessagesNotification = true
-      sendTelegramMessage(message)
-    } else if (unreadMessagesCount % (2 * notifyAfterNMessages) === 0) {
-      sendTelegramMessage(message)
-    }
-  } else {
-    newMessagesNotification = false
-  }
+  notifyForUnreadMessages(unreadMessagesCount)
 
   await db
     .collection('zaletChat')
@@ -323,39 +357,6 @@ const processChatData = async (responseJson: any) => {
   console.log('Messages successfully processed!')
 
   return Promise.resolve()
-}
-
-const addToCollection = async (collectionName: string, data: any) => {
-  try {
-    const docRef = await db.collection(collectionName).add(data)
-
-    console.log(`Document written with ID: ${docRef.id}\n`)
-  } catch (e) {
-    console.error('Error adding document: ', e)
-  }
-}
-
-const generateFilenameWithDate = (name: string, extension = 'json') => {
-  const dateYmd = new Date()
-    .toLocaleDateString('en-GB')
-    .split('/')
-    .reverse()
-    .join('-')
-  const hourAndMinuteString = new Date()
-    .toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit'
-    })
-    .replace(':', '-')
-
-  return `${name}_${dateYmd}_${hourAndMinuteString}.${extension}`
-}
-
-const getDateTimeString = (date?: Date) => {
-  return (date || new Date())
-    .toLocaleString('en-GB', { timeZone: 'Europe/Belgrade' })
-    .replaceAll('/', '.')
-    .replace(',', '.')
 }
 
 const getMessages = async () => {
@@ -395,7 +396,7 @@ const getMessages = async () => {
   console.log('fetched messages: ', responseJson.messages.length)
 
   await processChatData(responseJson)
-  if (new Date().getMinutes() % 30 === 0) {
+  if (new Date().getMinutes() % 3 === 0) {
     const filename = generateFilenameWithDate('chatdata')
     console.log(`Saving response to file: ${filename}`)
 
@@ -404,14 +405,6 @@ const getMessages = async () => {
 
   checkInProgress = false
   return Promise.resolve()
-}
-
-const sendTelegramMessage = (message: string): Promise<any> => {
-  const url = `https://api.telegram.org/bot7044628693:AAG4LnbOMzmMXdqZTJR93riWSJzE-o5KNfA/sendMessage?chat_id=1370480299&text=${encodeURI(
-    message
-  )}`
-
-  return fetch(url)
 }
 
 const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
@@ -437,11 +430,6 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
   }
 
   return Promise.resolve(responseJson.users)
-}
-
-async function getFileFromUrl(/** @type {string} */ url: string) {
-  const response = await fetch(url)
-  return response.blob()
 }
 
 async function uploadFile(file: Blob, currentUser: ChatUserConfig) {
@@ -489,4 +477,28 @@ async function sendImageToChat(
   }
 
   return resp.json()
+}
+
+function notifyForUnreadMessages(unreadMessagesCount: number) {
+  console.log(`You have ${unreadMessagesCount} unread messages!`)
+
+  let notificationIndex = -1
+
+  for (let i = 0; i < notifyAfterNMessages.length; i++) {
+    if (unreadMessagesCount >= notifyAfterNMessages[i]) {
+      notificationIndex = i
+    }
+  }
+
+  const shouldNotify = notificationIndex !== -1
+
+  if (shouldNotify) {
+    const message = `Check Zalet chat, you have ${unreadMessagesCount} unread messages!`
+    if (!newMessagesNotification[notificationIndex]) {
+      newMessagesNotification[notificationIndex] = true
+      sendTelegramMessage(message)
+    }
+  } else {
+    newMessagesNotification = Array(4).fill(false)
+  }
 }
