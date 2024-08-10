@@ -266,7 +266,7 @@ const processChatData = async (responseJson: any) => {
   const newMessages = [
     ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
   ]
-  const messagesToUpdate: Message[] = init ? [...newMessages] : []
+  const messagesToUpdate: Message[] = [...newMessages]
 
   let timePassedInMs
   const now = Date.now()
@@ -294,8 +294,6 @@ const processChatData = async (responseJson: any) => {
 
   previousMessages = allMessages
 
-  let hasNewMessages = false
-
   for (let m of messagesToUpdate) {
     const docRef = await db
       .collection('zaletChat/generalChat/messages')
@@ -308,7 +306,6 @@ const processChatData = async (responseJson: any) => {
         `Updating message: Id: ${m.message_id}, message: ${m.message}`
       )
     } else {
-      hasNewMessages = true
       console.log(
         `Inserting message: Id: ${m.message_id}, message: ${m.message}`
       )
@@ -324,7 +321,7 @@ const processChatData = async (responseJson: any) => {
     .flat()
   const allSendersSet = new Set([...allSenders, ...allReactionIds])
 
-  if (hasNewMessages) {
+  if (messagesToUpdate.length) {
     participants = await getParticipants(Array.from(allSendersSet))
   }
 
