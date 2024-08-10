@@ -11,19 +11,14 @@ import {
   Chat,
   ChatConfig,
   ChatUser,
-  ChatUserConfig,
   ManualTriggerEventType,
-  Message,
-  ReactionUpdate
+  Message
 } from './chat.model'
 import {
   addToCollection,
-  deleteMessageFromZaletChat,
   generateFilenameWithDate,
   getDateTimeString,
-  getFileFromUrl,
-  sendMessageToZaletChat,
-  sendReactionToZaletChat,
+  processManualTrigger,
   sendTelegramMessage
 } from './utils'
 
@@ -36,10 +31,7 @@ const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a99
 
 // Variables
 const timestamp = Date.now()
-const ZALET_CHAT_URL =
-  'https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/thread/8'
 
-const FILE_UPLOAD_URL = `${ZALET_CHAT_URL}/upload?nocache=${timestamp}`
 const MESSAGES = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/checkNew?nocache=${timestamp}`
 const MESSAGES_INTERVAL = 1000 * 15 // every 1 minute
 const PARTICIPANTS = `https://zalet.zaleprodukcija.com/wp-json/better-messages/v1/lazyPool?nocache=${timestamp}`
@@ -117,48 +109,9 @@ app.listen(port, async () => {
       for (const change of doc.docChanges()) {
         if (change.type === 'added') {
           const data = change.doc.data()
-          const eventType = change.doc.data().eventType
-          switch (eventType) {
-            case ManualTriggerEventType.SEND_MESSAGE_TO_ZALET: {
-              const message = data.message
-              console.log(`Sending message to Zalet chat: ${message}`)
-              await sendMessageToZaletChat(db, message)
-              break
-            }
-            case ManualTriggerEventType.REPLY_TO_ZALET: {
-              const { message, meta } = data
-              console.log(
-                `Replying in Zalet chat to id: ${meta.reply_to}, message: ${message}`
-              )
-              await sendMessageToZaletChat(db, message, meta)
-              break
-            }
-            case ManualTriggerEventType.REACT_TO_ZALET: {
-              const update = data.update as ReactionUpdate
-              console.log(
-                `Updating reaction in Zalet chat for message: ${update.message_id}`
-              )
-              await sendReactionToZaletChat(db, update)
-              break
-            }
-            case ManualTriggerEventType.SEND_FILE_TO_ZALET: {
-              const file = await getFileFromUrl(data.message)
-              const res = await uploadFile(file, data.currentUser)
-              const t = await res.json()
-              console.log('Uploaded file with id:', t.id)
-              const response = await sendImageToChat(t.id, data.currentUser)
-              console.log('response: ', response)
-              break
-            }
-            case ManualTriggerEventType.DELETE_MESSAGE_FROM_ZALET: {
-              const messageId = data.idToDelete
-              console.log(`Deleting message ${messageId} from Zalet chat!`)
-              await deleteMessageFromZaletChat(db, messageId)
-              break
-            }
-            default:
-              break
-          }
+          const eventType = change.doc.data()
+            .eventType as ManualTriggerEventType
+          await processManualTrigger(eventType, data, db)
         }
       }
 
@@ -422,53 +375,6 @@ const getParticipants = async (participants: number[]): Promise<ChatUser[]> => {
   }
 
   return Promise.resolve(responseJson.users)
-}
-
-async function uploadFile(file: Blob, currentUser: ChatUserConfig) {
-  const formData = new FormData()
-  formData.set('file', file, 'file.jpg')
-  return fetch(FILE_UPLOAD_URL, {
-    method: 'POST',
-    headers: {
-      'X-WP-Nonce': currentUser.wpNonce,
-      host: 'zalet.zaleprodukcija.com',
-      Accept: 'application/json, text/plain, */*',
-      Cookie: currentUser.wpCookie
-    },
-    body: formData
-  })
-}
-
-async function sendImageToChat(
-  fileId: number,
-  currentUser: ChatUserConfig
-): Promise<Response> {
-  const timestamp = Date.now()
-  const body = JSON.stringify({
-    message: '',
-    files: [fileId],
-    meta: {}
-  })
-
-  const url = `${ZALET_CHAT_URL}/send?nocache=` + timestamp
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'X-WP-Nonce': currentUser.wpNonce,
-      host: 'zalet.zaleprodukcija.com',
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Cookie: currentUser.wpCookie
-    },
-    body
-  })
-
-  if (!resp.ok) {
-    return Promise.reject(new Error('Error sending image to Zalet chat!'))
-  }
-
-  return resp.json()
 }
 
 function notifyForUnreadMessages(unreadMessagesCount: number) {
