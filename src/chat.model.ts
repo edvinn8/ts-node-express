@@ -15,6 +15,7 @@ export interface Chat {
 }
 
 export interface Message {
+  isKljipsi: boolean;
   thread_id:  number;
   sender_id:  number;
   sender?:    ChatUser;
@@ -28,6 +29,12 @@ export interface Message {
   replyTo?:   Message;
   favorited:  number;
   hasFiles:   boolean;
+  youtubeData?: YoutubeData;
+}
+
+export interface YoutubeData {
+  embedUrl:   string;
+  embedTitle: string;
 }
 
 export interface MetaMeta {

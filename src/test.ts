@@ -3,11 +3,12 @@ import dotenv from 'dotenv'
 import express, { Express, Request, Response } from 'express'
 
 import { firestore } from 'firebase-admin'
-var request = require('request')
+import { Message } from './chat.model'
 
 const { initializeApp, cert } = require('firebase-admin/app')
 const { getFirestore } = require('firebase-admin/firestore')
 const serviceAccount = require('D:/Development/servicekeys/zale-wiki-6af17806a991.json')
+const data = require('D:/Development/Backup/RequestResponses/chatdata_2024-08-14_21-50.json')
 
 initializeApp({
   credential: cert(serviceAccount)
@@ -29,35 +30,17 @@ var http = require('https')
 /* Start the Express app and listen
  for incoming requests on the specified port */
 app.listen(port, async () => {
-  const test = await fetch('http://zalet.zaleprodukcija.com/wp-login.php', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Origin: 'http://zalet.zaleprodukcija.com',
-      Referer: 'http://zalet.zaleprodukcija.com/wp-login.php',
-      'Access-Control-Expose-Headers': '*' // 'Set-Cookie'
-    },
-    body: JSON.stringify({
-      log: 'ranko.knezevic1',
-      pwd: 'Download12%23%24',
-      rememberme: 'forever',
-      'wp-submit': '%D0%9F%D1%80%D0%B8%D1%98%D0%B0%D0%B2%D0%B0',
-      redirect_to: 'https%3A%2F%2Fzalet.zaleprodukcija.com%2Fwp-admin%2F',
-      testcookie: '1'
-    }),
-    credentials: 'include'
+  const s = data.messages.filter((message: Message) => {
+    return message.sender_id === 14 && message.message.includes('embed')
   })
-
-  console.log(`Status: ${test.status}`)
-  const t = test.headers.getSetCookie() 
-  console.log('test: ', test);
-
-  console.log('Possibly cookie: ', t)
-
-  const headersEntries = test.headers.values()
-  let cookie = ''
-  for (const header of headersEntries) {
-    console.log('header: ', header)
-    // console.log(`${header[0]}: ${header[1]}`)
-  }
+  console.log(
+    s
+      .map(
+        (m: Message) =>
+          `${m.message.split('src')[1].split('"')[1].split('?')[0]} - ${
+            m.message.split('title')[1].split('"')[1]
+          }`
+      )
+      .join('\n\n')
+  )
 })

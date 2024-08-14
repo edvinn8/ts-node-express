@@ -202,13 +202,22 @@ const processChatData = async (responseJson: any) => {
 
   // process messages
   for (let m of allMessages) {
-    if (!m.message.includes('edo-processed') && m.meta.files?.length) {
+    if (m.meta.files?.length && !m.message.includes('edo-processed')) {
       m.meta.files.forEach((file) => {
         m.message =
           (m.message.includes('BM-ONLY-FILES') ? '' : m.message) +
           `<br/> <a class="edo-processed" href="${file.url}" target="_blank"><img src="${file.url}" alt="${file.name}" /></a>`
       })
       m.hasFiles = true
+    }
+
+    if (m.sender_id === 14 && m.message.includes('embed')) {
+      // Links from Dulji
+      m.isKljipsi = true
+      m.youtubeData = {
+        embedUrl: m.message.split('src')[1].split('"')[1].split('?')[0],
+        embedTitle: m.message.split('title')[1].split('"')[1]
+      }
     }
 
     lastMessageId = m.message_id
