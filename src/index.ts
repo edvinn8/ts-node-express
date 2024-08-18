@@ -16,6 +16,7 @@ import {
 } from './chat.model'
 import {
   addToCollection,
+  BOT_TOKENS,
   generateFilenameWithDate,
   getDateTimeString,
   processManualTrigger,
@@ -213,11 +214,11 @@ const processChatData = async (responseJson: any) => {
 
     if (m.sender_id === 14 && m.message.includes('embed')) {
       // Links from Dulji
-      m.isKljipsi = true
       m.youtubeData = {
-        embedUrl: m.message.split('src')[1].split('"')[1].split('?')[0],
-        embedTitle: m.message.split('title')[1].split('"')[1]
+        embedUrl: m.message.split('src')[1]?.split('"')[1]?.split('?')[0],
+        embedTitle: m.message.split('title')[1]?.split('"')[1]
       }
+      m.isKljipsi = true
     }
 
     lastMessageId = m.message_id
@@ -228,6 +229,22 @@ const processChatData = async (responseJson: any) => {
   const newMessages = [
     ...allMessages.filter((m) => m.message_id > lastSavedMessageId)
   ]
+  // sendTelegramMessage(
+  //   `Novi kljipsi: ${'https://www.youtube.com/embed/vZFT0ZjbWDY'}`,
+  //   BOT_TOKENS.ZALET_KLJIPSI.token,
+  //   BOT_TOKENS.ZALET_KLJIPSI.chat_id
+  // )
+
+  newMessages
+    .filter((m) => m.isKljipsi)
+    .forEach((msg) => {
+      sendTelegramMessage(
+        `Novi kljipsi: ${msg.youtubeData!.embedUrl}`,
+        BOT_TOKENS.ZALET_KLJIPSI.token,
+        BOT_TOKENS.ZALET_KLJIPSI.chat_id
+      )
+    })
+
   const messagesToUpdate: Message[] = [...newMessages]
 
   let timePassedInMs

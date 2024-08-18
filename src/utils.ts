@@ -47,8 +47,23 @@ export const getDateTimeString = (date?: Date) => {
     .replace(',', '.')
 }
 
-export const sendTelegramMessage = (message: string): Promise<any> => {
-  const url = `https://api.telegram.org/bot7044628693:AAG4LnbOMzmMXdqZTJR93riWSJzE-o5KNfA/sendMessage?chat_id=1370480299&text=${encodeURI(
+export const BOT_TOKENS = {
+  ZALE_WIKI: {
+    token: '7044628693:AAG4LnbOMzmMXdqZTJR93riWSJzE-o5KNfA',
+    chat_id: '1370480299'
+  },
+  ZALET_KLJIPSI: {
+    token: '7388879819:AAFlgH1QCQEFQs2gqLyqj5_-bspKtmSn8nU',
+    chat_id: '-4543379103'
+  }
+}
+
+export const sendTelegramMessage = (
+  message: string,
+  token: string = BOT_TOKENS.ZALE_WIKI.token,
+  chat_id: string = BOT_TOKENS.ZALE_WIKI.chat_id
+): Promise<any> => {
+  const url = `https://api.telegram.org/bot${token}/sendMessage?chat_id=${chat_id}&text=${encodeURI(
     message
   )}`
 
