@@ -33,6 +33,7 @@ export interface Message {
 }
 
 export interface YoutubeData {
+  watchUrl: string;
   embedUrl:   string;
   embedTitle: string;
 }

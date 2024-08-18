@@ -214,8 +214,10 @@ const processChatData = async (responseJson: any) => {
 
     if (m.sender_id === 14 && m.message.includes('embed')) {
       // Links from Dulji
+      const embedUrl = m.message.split('src')[1]?.split('"')[1]?.split('?')[0]
       m.youtubeData = {
-        embedUrl: m.message.split('src')[1]?.split('"')[1]?.split('?')[0],
+        embedUrl,
+        watchUrl: embedUrl.replace('embed/', 'watch?v='),
         embedTitle: m.message.split('title')[1]?.split('"')[1]
       }
       m.isKljipsi = true
@@ -239,7 +241,7 @@ const processChatData = async (responseJson: any) => {
     .filter((m) => m.isKljipsi)
     .forEach((msg) => {
       sendTelegramMessage(
-        `Novi kljipsi: ${msg.youtubeData!.embedUrl}`,
+        `Novi kljipsi: ${msg.youtubeData!.watchUrl}`,
         BOT_TOKENS.ZALET_KLJIPSI.token,
         BOT_TOKENS.ZALET_KLJIPSI.chat_id
       )

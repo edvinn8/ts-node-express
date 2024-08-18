@@ -54,6 +54,10 @@ export const BOT_TOKENS = {
   },
   ZALET_KLJIPSI: {
     token: '7388879819:AAFlgH1QCQEFQs2gqLyqj5_-bspKtmSn8nU',
+    chat_id: '-1002158205019'
+  },
+  ZALET_KLJIPSI_KLIPOVI: {
+    token: '7388879819:AAFlgH1QCQEFQs2gqLyqj5_-bspKtmSn8nU',
     chat_id: '-4543379103'
   }
 }
