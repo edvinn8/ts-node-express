@@ -358,9 +358,11 @@ const getMessages = async () => {
     // notify telegram to update cookies
     errorCount++
     if (errorCount > 5 && !telegramSent) {
-      sendTelegramMessage('Error fetching messages, check cookies ASAP!')
+      sendTelegramMessage('Error fetching messages, trying to reset nonce and cookies!')
       errorCount = 0
       telegramSent = true
+      var url = 'https://zalet.zaleprodukcija.com/blog/'
+      require('child_process').exec(`start ${url}`)
     }
     checkInProgress = false
     return Promise.resolve()
