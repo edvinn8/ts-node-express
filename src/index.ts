@@ -42,8 +42,8 @@ let chatConfig: ChatConfig
 let errorCount = 0
 let telegramSent = false
 
-const notifyAfterNMessages = [5, 10, 20, 50]
-let newMessagesNotification = Array(4).fill(false)
+const notifyAfterNMessages = [20, 50, 100] // every N unread messages from this array, send a telegram message to Edo
+let newMessagesNotification = Array(notifyAfterNMessages.length).fill(false)
 let previousMessages: Message[] | undefined
 let rawResponse: string
 
@@ -52,6 +52,7 @@ initializeApp({
 })
 
 const db: Firestore = getFirestore()
+db.settings({ ignoreUndefinedProperties: true })
 
 dotenv.config()
 
@@ -254,7 +255,7 @@ const processChatData = async (responseJson: any) => {
 
   if (!!previousMessages) {
     allMessages
-      .filter((m) => m.message_id > lastMessageId - 100)
+      .filter((m) => m.message_id > lastMessageId - 500)
       .forEach((m, i) => {
         const prev = previousMessages!.find(
           (pm) => pm.message_id === m.message_id
@@ -358,7 +359,9 @@ const getMessages = async () => {
     // notify telegram to update cookies
     errorCount++
     if (errorCount > 5 && !telegramSent) {
-      sendTelegramMessage('Error fetching messages, trying to reset nonce and cookies!')
+      sendTelegramMessage(
+        'Error fetching messages, trying to reset nonce and cookies!'
+      )
       errorCount = 0
       telegramSent = true
       var url = 'https://zalet.zaleprodukcija.com/blog/'
